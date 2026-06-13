@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.neuedu.eco.mapper.FeedbackMapper">
+
+    <!-- 按时间/区域统计AQI趋势 -->
+    <select id="selectAqiTrend" resultType="java.util.Map">
+        SELECT
+            <choose>
+                <when test="dimension == 'month'">
+                    DATE_FORMAT(f.feedback_time, '%Y-%m') AS date,
+                </when>
+                <when test="dimension == 'quarter'">
+                    CONCAT(YEAR(f.feedback_time), '-Q', QUARTER(f.feedback_time)) AS date,
+                </when>
+                <otherwise>
+                    DATE_FORMAT(f.feedback_time, '%Y-%m-%d') AS date,
+                </otherwise>
+            </choose>
+            ROUND(AVG(f.aqi_value), 1) AS avgAqi,
+            MAX(f.aqi_value) AS maxAqi,
+            MIN(f.aqi_value) AS minAqi,
+            COUNT(*) AS count
+        FROM feedback f
+        <where>
+            <if test="startDate != null and startDate != ''">
+                AND f.feedback_time &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND f.feedback_time &lt;= CONCAT(#{endDate}, ' 23:59:59')
+            </if>
+            <if test="cityId != null">
+                AND f.grid_address IN (
+                    SELECT gm.grid_address FROM grid_member gm WHERE gm.city_id = #{cityId}
+                )
+            </if>
+            <if test="provinceId != null and cityId == null">
+                AND f.grid_address IN (
+                    SELECT gm.grid_address FROM grid_member gm
+                    INNER JOIN city c ON gm.city_id = c.id
+                    WHERE c.province_id = #{provinceId}
+                )
+            </if>
+        </where>
+        GROUP BY date
+        ORDER BY date
+    </select>
+
+    <!-- 按时间/区域汇总AQI统计 -->
+    <select id="selectAqiSummary" resultType="java.util.Map">
+        SELECT
+            ROUND(AVG(f.aqi_value), 1) AS avgAqi,
+            MAX(f.aqi_value) AS maxAqi,
+            MIN(f.aqi_value) AS minAqi,
+            COUNT(*) AS total
+        FROM feedback f
+        <where>
+            <if test="startDate != null and startDate != ''">
+                AND f.feedback_time &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND f.feedback_time &lt;= CONCAT(#{endDate}, ' 23:59:59')
+            </if>
+            <if test="cityId != null">
+                AND f.grid_address IN (
+                    SELECT gm.grid_address FROM grid_member gm WHERE gm.city_id = #{cityId}
+                )
+            </if>
+            <if test="provinceId != null and cityId == null">
+                AND f.grid_address IN (
+                    SELECT gm.grid_address FROM grid_member gm
+                    INNER JOIN city c ON gm.city_id = c.id
+                    WHERE c.province_id = #{provinceId}
+                )
+            </if>
+        </where>
+    </select>
+
+    <!-- 按省份统计各污染物超标次数 -->
+    <select id="selectProvincePollutantOverCount" resultType="java.util.Map">
+        SELECT
+            p.province_name AS provinceName,
+            p.province_code AS provinceCode,
+            SUM(CASE WHEN f.pm25 > 75 THEN 1 ELSE 0 END) AS pm25OverCount,
+            SUM(CASE WHEN f.so2 > 150 THEN 1 ELSE 0 END) AS so2OverCount,
+            SUM(CASE WHEN f.co > 4 THEN 1 ELSE 0 END) AS coOverCount,
+            COUNT(f.id) AS totalCount
+        FROM province p
+        LEFT JOIN city c ON c.province_id = p.id
+        LEFT JOIN grid_member gm ON gm.city_id = c.id
+        LEFT JOIN feedback f ON f.grid_address = gm.grid_address
+        GROUP BY p.id, p.province_name, p.province_code
+        ORDER BY pm25OverCount DESC
+    </select>
+
+    <!-- 统计AQI等级分布 -->
+    <select id="selectAqiLevelDistribution" resultType="java.util.Map">
+        SELECT
+            al.level,
+            al.description,
+            al.color,
+            COUNT(f.id) AS count
+        FROM aqi_level al
+        LEFT JOIN feedback f ON f.aqi_value BETWEEN al.aqi_min AND al.aqi_max
+        GROUP BY al.id, al.level, al.description, al.color
+        ORDER BY al.id
+    </select>
+
+    <!-- 统计月度AQI趋势 -->
+    <select id="selectMonthlyAqiTrend" resultType="java.util.Map">
+        SELECT
+            DATE_FORMAT(f.feedback_time, '%Y-%m') AS month,
+            ROUND(AVG(f.aqi_value), 1) AS avgAqi,
+            MAX(f.aqi_value) AS maxAqi,
+            MIN(f.aqi_value) AS minAqi,
+            COUNT(f.id) AS totalCount
+        FROM feedback f
+        WHERE f.feedback_time >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+        GROUP BY month
+        ORDER BY month
+    </select>
+
+</mapper>
